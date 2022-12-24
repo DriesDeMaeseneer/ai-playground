@@ -1,0 +1,3 @@
+# AI playground
+
+This is some code for simple neural network creation, training, ...
