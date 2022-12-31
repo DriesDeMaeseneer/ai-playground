@@ -1,60 +1,62 @@
+use ndarray::Array1;
+
 pub struct BinaryPerceptron<const AMT_WEIGHTS: usize> {
-    weights: [f32; AMT_WEIGHTS],
+    weights: Array1<f32>,
 }
 
 impl<const AMT_WEIGHTS: usize> BinaryPerceptron<AMT_WEIGHTS> {
     pub fn new() -> Self {
         BinaryPerceptron {
-            weights: [0.0; AMT_WEIGHTS],
+            weights: Array1::<f32>::zeros(AMT_WEIGHTS),
         }
     }
-    pub fn activation(&self, features: [f32; AMT_WEIGHTS]) -> f32 {
-        self.weights
-            .into_iter()
-            .enumerate()
-            .map(|(ith, weight)| weight * features[ith])
-            .sum()
+    pub fn activation(&self, features: &Array1<f32>) -> f32 {
+        self.weights.dot(features)
     }
-    pub fn classify(&self, sample: [f32; AMT_WEIGHTS]) -> i8 {
-        if self.activation(sample) > 0.0 {
+    pub fn classify(&self, sample: &Array1<f32>) -> i8 {
+        if self.activation(&sample) > 0.0 {
             return 1;
         } else {
             return -1;
         }
     }
-    pub fn imult(class: i8, b: [f32; AMT_WEIGHTS]) -> [f32; AMT_WEIGHTS] {
-        let mut imult_result: [f32; AMT_WEIGHTS] = [0.0; AMT_WEIGHTS];
-        for imult_index in 0..AMT_WEIGHTS {
-            imult_result[imult_index] = class as f32 + b[imult_index];
-        }
-        imult_result
+    pub fn isum(class: i8, b: &Array1<f32>) -> Array1<f32> {
+        Array1::<f32>::from_elem(AMT_WEIGHTS, class as f32) + b
     }
-    pub fn sum(a: [f32; AMT_WEIGHTS], b: [f32; AMT_WEIGHTS]) -> [f32; AMT_WEIGHTS] {
-        let mut sum_result: [f32; AMT_WEIGHTS] = [0.0; AMT_WEIGHTS];
-        for sum_index in 0..AMT_WEIGHTS {
-            sum_result[sum_index] = a[sum_index] + b[sum_index];
-        }
-        sum_result
+    pub fn new_weights(&self, class: i8, sample: &Array1<f32>) -> Array1<f32> {
+        self.weights.to_owned() + BinaryPerceptron::<AMT_WEIGHTS>::isum(class, &sample)
     }
-    pub fn new_weights(&self, class: i8, sample: [f32; AMT_WEIGHTS]) -> [f32; AMT_WEIGHTS] {
-        BinaryPerceptron::<AMT_WEIGHTS>::sum(
-            self.weights,
-            BinaryPerceptron::<AMT_WEIGHTS>::imult(class, sample),
-        )
-    }
-    pub fn train(&mut self, class_and_samples: Vec<(i8, [f32; AMT_WEIGHTS])>) {
+    pub fn train(&mut self, class_and_samples: Vec<(i8, Array1<f32>)>) {
         let mut weights_have_updated: bool = true;
         while weights_have_updated {
             weights_have_updated = false;
             for (class, sample) in class_and_samples.iter() {
-                if *class != self.classify(*sample) {
-                    self.weights = self.new_weights(*class, *sample);
+                if *class != self.classify(&sample) {
+                    self.weights = self.new_weights(*class, &sample);
                     weights_have_updated = true;
                 }
             }
         }
     }
-    pub fn get_weights(&self) -> [f32; AMT_WEIGHTS] {
-        return self.weights;
+}
+
+#[cfg(test)]
+pub mod test {
+    use ndarray::arr1;
+
+    use super::*;
+    #[test]
+    fn binary_perceptron_classification_test() {
+        let mut perceptron = BinaryPerceptron::<2>::new();
+        let data = vec![
+            (1, arr1(&[1., 2.])),
+            (1, arr1(&[2., 2.])),
+            (1, arr1(&[2., 0.])),
+            (-1, arr1(&[-2., 0.])),
+            (-1, arr1(&[0., -2.])),
+        ];
+        perceptron.train(data);
+        assert_eq!(perceptron.classify(&arr1(&[4., 2.])), 1);
+        assert_eq!(perceptron.classify(&arr1(&[-1., -1.])), -1);
     }
 }

@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 # Matrix multiplication and other stuff:
-ndarray = { version = "0.15.6", features = ["matrixmultiply-threading", "blas", "std"]}
+# ndarray = { version = "0.15.6", features = ["matrixmultiply-threading", "blas", "std"]}
+ndarray = { version = "0.15.6", features = ["std"]}
