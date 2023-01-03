@@ -166,13 +166,13 @@ impl NNBuilder {
         self.alpha = alpha;
         self
     }
-    pub fn add_layer(
-        mut self,
-        layer_size: usize,
-        activation_function: ActivationFunctionEnum,
-    ) -> Self {
-        self.layers.push((Array2::<f32>::zeros((0, 0)), Array1))
-    }
+    // pub fn add_layer(
+    //     mut self,
+    //     layer_size: usize,
+    //     activation_function: ActivationFunctionEnum,
+    // ) -> Self {
+    //     self.layers.push((Array2::<f32>::zeros((0, 0)), Array1))
+    // }
 }
 
 #[cfg(test)]
