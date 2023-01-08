@@ -1,5 +1,5 @@
 [package]
-name = "ai-playground"
+name = "ml-playground"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,3 +9,4 @@ edition = "2021"
 # Matrix multiplication and other stuff:
 # ndarray = { version = "0.15.6", features = ["matrixmultiply-threading", "blas", "std"]}
 ndarray = { version = "0.15.6", features = ["std"]}
+rand = "0.8.5"
