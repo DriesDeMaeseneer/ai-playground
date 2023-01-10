@@ -1,15 +1,26 @@
 use std::f32::consts::E;
 
+#[derive(Clone)]
 pub enum ActivationFunctionEnum {
     Sigmoid,
     ReLu,
     HeavisideStep,
     Tanh,
+    None,
 }
 
 pub trait ActicationFunction {
     fn activation(&self, value: f32) -> f32;
     fn derivative(&self, value: f32) -> f32;
+}
+pub struct ActNone;
+impl ActicationFunction for ActNone {
+    fn activation(&self, value: f32) -> f32 {
+        value
+    }
+    fn derivative(&self, value: f32) -> f32 {
+        value
+    }
 }
 
 pub struct Sigmoid;
