@@ -11,13 +11,16 @@ pub type ForwardResult = (Vec<(Array1<f32>, Array1<f32>)>, Array1<f32>);
 // list of updates to weights and bias per layer.
 pub type BackwardResult = Vec<(Array1<f32>, Array1<f32>)>;
 
-// Neural network implementation
+/// Neural network implementation
+///
+/// last defined layer node amount also is the amount of output signals.
 pub struct NN {
     layers: Vec<Layer>,
     alpha: f32,
     batch_size: usize,
     iterations: usize,
     soft_max: bool,
+    print_iterations: bool,
 }
 impl NN {
     pub fn new() -> NNBuilder {
@@ -26,7 +29,10 @@ impl NN {
     pub fn forward(&self, input: &Array1<f32>) -> ForwardResult {
         let mut pre_and_post_activations: Vec<(Array1<f32>, Array1<f32>)> =
             Vec::with_capacity(self.layers.len());
-        pre_and_post_activations.push((input.clone(), Array1::<f32>::zeros(0)));
+        pre_and_post_activations.push((
+            input.clone(),
+            Array1::<f32>::zeros(input.strides()[0] as usize),
+        ));
         let mut current_layer_actiovation: Array1<f32> = input.clone();
         for i in 0..self.layers.len() {
             let current_layer = &self.layers[i];
@@ -36,8 +42,9 @@ impl NN {
                 current_weights.t().dot(&current_layer_actiovation) + current_biases;
             let backup = pre_activation.clone();
 
+            // apply activation function elementwise.
             pre_activation
-                .mapv_inplace(|item| ActicationFunction::activation(&*current_layer.2, item));
+                .mapv_inplace(|element| ActicationFunction::activation(&*current_layer.2, element));
 
             current_layer_actiovation = pre_activation;
             pre_and_post_activations.push((backup, current_layer_actiovation.clone()));
@@ -60,27 +67,35 @@ impl NN {
         cost_vector: &Array1<f32>,
     ) -> BackwardResult {
         // derivation of 'last' layer.
-        let dz_L = &forward_information.1 - cost_vector;
-        let dw_L: Array1<f32> = (1.0 / self.batch_size as f32) * &forward_information.1 * &dz_L;
-        let mut z_derivatives = vec![dz_L.clone()];
-        let mut output: BackwardResult = vec![(dw_L, dz_L)];
-        for l in (0..self.layers.len() - 1).rev() {
-            let al_minus_1: &Array1<f32> = &forward_information.0[l + 1].1;
+        let deriv_z_last_layer = cost_vector.clone();
+        let deriv_w_last_layer: Array1<f32> =
+            (1.0 / self.batch_size as f32) * &forward_information.1 * &deriv_z_last_layer;
+        let mut z_derivatives = vec![deriv_z_last_layer.clone()];
+        let mut output: BackwardResult = vec![(
+            deriv_w_last_layer,
+            (1.0 / self.batch_size as f32) * deriv_z_last_layer,
+        )];
+
+        for l in (1..=self.layers.len() - 1).rev() {
+            let al_minus_1: &Array1<f32> = &forward_information.0[l - 1].1;
             // derivation of i'th layer.
-            let dz_l: Array1<f32> = self.layers[l + 1].0.dot(
+            let mut deriv_z_current_layer: Array1<f32> = self.layers[l].0.dot(
                 &z_derivatives
                     .last()
                     .expect("Could not fetch last derivation.") as &Array1<f32>,
             );
-            dz_l.for_each(|item| {
-                ActicationFunction::derivative(&*self.layers[l].2, *item);
+            // applt derivative elementwise.
+            deriv_z_current_layer.mapv_inplace(|element| {
+                ActicationFunction::derivative(&*self.layers[l].2, element)
             });
-            z_derivatives.push(dz_l.clone());
+            z_derivatives.push(deriv_z_current_layer.clone());
             // derivation of weights at i'th layer.
-            let dw_l: Array1<f32> = (1.0 / self.batch_size as f32) * &dz_l * al_minus_1;
+            let deriv_w_current_layer: Array1<f32> =
+                (1.0 / self.batch_size as f32) * &deriv_z_current_layer * al_minus_1;
             // derivation of biases at i'th layer.
-            let db_l: Array1<f32> = (1.0 / self.batch_size as f32) * dz_l;
-            output.push((dw_l, db_l));
+            let deriv_b_current_layer: Array1<f32> =
+                (1.0 / self.batch_size as f32) * deriv_z_current_layer;
+            output.push((deriv_w_current_layer, deriv_b_current_layer));
         }
         output
     }
@@ -133,12 +148,14 @@ impl NN {
 
             self.update_parameters(&current_batch_mean_gradients);
             let average_cost = self.average_cost(&batch_costs);
-            println!(
-                "Iteration {} ({}% completed) has an average cost of {}",
-                i,
-                i as f32 * 100. / self.iterations as f32,
-                average_cost
-            );
+            if self.print_iterations {
+                println!(
+                    "Iteration {} ({}% completed) has an average cost of {}",
+                    i,
+                    i as f32 * 100. / self.iterations as f32,
+                    average_cost
+                );
+            }
         }
     }
     pub fn calculate_loss(
@@ -169,7 +186,6 @@ impl NN {
     }
     fn argmax(&self, input: &Array1<f32>) -> f32 {
         if input.len() == 1 {
-            println!("argmax {}", input[0]);
             return input[0];
         }
         let mut max_index = 0;
@@ -192,6 +208,8 @@ pub struct NNBuilder {
     iterations: usize,
     input_amt: usize,
     soft_max: bool,
+    print_iterations: bool,
+    final_activation: ActivationFunctionEnum,
 }
 
 impl NNBuilder {
@@ -203,10 +221,16 @@ impl NNBuilder {
             iterations: 0,
             input_amt: 0,
             soft_max: false,
+            print_iterations: true,
+            final_activation: ActivationFunctionEnum::Sigmoid,
         }
     }
     pub fn with_alpha(mut self, alpha: f32) -> Self {
         self.alpha = alpha;
+        self
+    }
+    pub fn print_iterations(mut self, print: bool) -> Self {
+        self.print_iterations = print;
         self
     }
     pub fn soft_max(mut self, soft_max: bool) -> Self {
@@ -225,7 +249,11 @@ impl NNBuilder {
         self.input_amt = input_amt;
         self
     }
-    pub fn add_layer(
+    pub fn with_final_activation(mut self, activation: ActivationFunctionEnum) -> Self {
+        self.final_activation = activation;
+        self
+    }
+    pub fn add_hidden_layer(
         mut self,
         layer_size: usize,
         activation_function: ActivationFunctionEnum,
@@ -235,6 +263,7 @@ impl NNBuilder {
             ActivationFunctionEnum::ReLu => Box::new(activation_functions::ReLu),
             ActivationFunctionEnum::HeavisideStep => Box::new(activation_functions::HeavisideStep),
             ActivationFunctionEnum::Tanh => Box::new(activation_functions::Tanh),
+            ActivationFunctionEnum::None => Box::new(activation_functions::ActNone),
         };
         if self.layers.len() == 0 {
             let new_layer: Layer = (
@@ -254,34 +283,87 @@ impl NNBuilder {
         self
     }
     pub fn build(self) -> NN {
+        let final_act = self.final_activation.clone();
+        let final_self = self.add_hidden_layer(1, final_act);
         NN {
-            layers: self.layers,
-            batch_size: self.batch_size,
-            alpha: self.alpha,
-            iterations: self.iterations,
-            soft_max: self.soft_max,
+            layers: final_self.layers,
+            batch_size: final_self.batch_size,
+            alpha: final_self.alpha,
+            iterations: final_self.iterations,
+            soft_max: final_self.soft_max,
+            print_iterations: final_self.print_iterations,
         }
     }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use ndarray::{arr1, Array1};
 
-    use crate::activation_functions::ActivationFunctionEnum;
+    use ndarray::{arr1, arr2, Array1, Array2};
+
+    use crate::{
+        activation_functions::{self, ActicationFunction, ActivationFunctionEnum},
+        neural_network::ForwardResult,
+    };
     use rand::prelude::*;
 
     use super::NN;
 
     #[test]
-    fn binary_nn_classification_test() {
+    fn forward_nn_test() {
         let mut network = NN::new()
             .with_alpha(0.1)
+            .with_iterations(10)
+            .with_batch_size(10)
+            .with_input_nodes(2)
+            .add_hidden_layer(1, ActivationFunctionEnum::Sigmoid)
+            .soft_max(false)
+            .build();
+
+        let weigts: Array2<f32> = arr2(&[[1.], [2.]]);
+        let biases: Array1<f32> = arr1(&[-2.]);
+        let activation_func: Box<dyn ActicationFunction> = Box::new(activation_functions::Sigmoid);
+        let layer = (weigts, biases, activation_func);
+        network.layers = vec![layer];
+        let forward_result: ForwardResult = network.forward(&arr1(&[3., 2.]));
+
+        assert_eq!(forward_result.1, arr1(&[0.9933072]));
+    }
+    #[test]
+    fn backward_nn_test() {
+        let mut network = NN::new()
+            .with_alpha(0.1)
+            .with_iterations(10)
+            .with_batch_size(10)
+            .with_input_nodes(2)
+            .add_hidden_layer(2, ActivationFunctionEnum::Sigmoid)
+            .add_hidden_layer(1, ActivationFunctionEnum::Sigmoid)
+            .soft_max(false)
+            .build();
+
+        let weigts1: Array2<f32> = arr2(&[[1., 2.], [2., 3.]]);
+        let biases1: Array1<f32> = arr1(&[-1., -2.]);
+        let activation_func1: Box<dyn ActicationFunction> = Box::new(activation_functions::Sigmoid);
+        let weigts2: Array2<f32> = arr2(&[[-1.], [4.]]);
+        let biases2: Array1<f32> = arr1(&[-1.]);
+        let activation_func2: Box<dyn ActicationFunction> = Box::new(activation_functions::Sigmoid);
+        let layer1 = (weigts1, biases1, activation_func1);
+        let layer2 = (weigts2, biases2, activation_func2);
+        network.layers = vec![layer1, layer2];
+        let forward_result = network.forward(&arr1(&[2., 2.]));
+        let backward_result = network.backward(&forward_result, &arr1(&[0.118642]));
+        network.update_parameters(&backward_result);
+        assert_eq!(network.forward(&arr1(&[2., 2.])).1, arr1(&[1.]));
+    }
+    #[test]
+    fn binary_nn_classification_test() {
+        // no final activation, default is sigmoid.
+        let mut network = NN::new()
+            .with_alpha(0.01)
             .with_iterations(1000)
             .with_batch_size(10)
             .with_input_nodes(2)
-            .add_layer(1, ActivationFunctionEnum::Sigmoid)
-            .add_layer(1, ActivationFunctionEnum::Sigmoid)
+            .print_iterations(false)
             .soft_max(false)
             .build();
 
@@ -305,8 +387,8 @@ pub mod tests {
             (arr1(&[-7., -3.]), arr1(&[0.])),
         ];
         network.mini_batch_gradient_descent(&train_data);
-        assert!(network.evaluate(&arr1(&[3., 3.])) > 0.8);
-        assert!(network.evaluate(&arr1(&[-20., -20.])) < 0.2);
+        assert!(network.evaluate(&arr1(&[3., 3.])) > 0.85);
+        assert!(network.evaluate(&arr1(&[-20., -20.])) < 0.15);
     }
 
     fn chess_board_data(amt: usize) -> Vec<(Array1<f32>, Array1<f32>)> {
@@ -329,12 +411,13 @@ pub mod tests {
     fn chess_board_classification_test() {
         let mut network = NN::new()
             .with_alpha(0.01)
-            .with_iterations(100)
+            .with_iterations(1000)
             .with_batch_size(30)
             .with_input_nodes(2)
-            .add_layer(4, ActivationFunctionEnum::ReLu)
-            .add_layer(1, ActivationFunctionEnum::ReLu)
+            .add_hidden_layer(4, ActivationFunctionEnum::ReLu)
+            .add_hidden_layer(1, ActivationFunctionEnum::ReLu)
             .soft_max(false)
+            .print_iterations(false)
             .build();
 
         let data_points: usize = 100;
@@ -343,7 +426,7 @@ pub mod tests {
 
         assert!(network.evaluate(&arr1(&[3., 3.])) > 0.);
         assert!(network.evaluate(&arr1(&[-4., -4.])) > 0.);
-        assert!(network.evaluate(&arr1(&[-3., 3.])) < 0.);
-        assert!(network.evaluate(&arr1(&[5., -4.])) < 0.);
+        assert!(network.evaluate(&arr1(&[-3., 3.])) < 0.1);
+        assert!(network.evaluate(&arr1(&[5., -4.])) < 0.1);
     }
 }
